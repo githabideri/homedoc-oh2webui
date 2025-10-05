@@ -1,45 +1,36 @@
-# AGENTS.md — codex-cli-oh2webui
+# Repository Guidelines
 
-This file gives **Codex CLI** agent(s) precise instructions for this repo. It complements README.md and is meant for tools.
+## Project Structure & Module Organization
+- CLI pipeline lives in `src/oh2webui_cli/`, where modules mirror the extract → distill → package → upload → chat stages.
+- `cli.py` exposes the `oh2webui` console script; shared configs and packaging metadata stay in the repo root (`pyproject.toml`, `Makefile`, `VERSION`).
+- Tests under `tests/` parallel the module names, with shared fixtures in `tests/__init__.py`; long-form references belong in `docs/`.
 
-## Agent scope
-- Work with OpenHands session JSONs stored on disk.
-- Produce compact, human-readable artifacts (≈0.5–1.5 KB) summarizing each step (what/why/changes/verdict/next).
-- Seed Open WebUI: create/reuse a collection, attach processed artifacts, and create a chat (variant **3A** completion or **3B** prefill-only).
-- Prefer summaries over raw logs; avoid pasting large outputs into prompts or files.
+## Build, Test, and Development Commands
+- `pip install -e .` prepares an editable Python environment.
+- `make fmt` runs `black .` with the 100-character line limit.
+- `make lint` wraps `ruff check .` to enforce style and import rules.
+- `make test` executes the pytest suite; pass `-k pattern` or `-m marker` to narrow the run.
+- Typical pipeline: `oh2webui extract --session <id> --src ~/.openhands/sessions --dst ./work/<id>/raw`, then `distill`, `upload`, and `chat --variant 3A|3B`.
 
-## Ground rules
-- Be **idempotent**: if a resource exists (collection, file), reuse it.
-- Keep actions **reversible**: avoid destructive changes.
-- **Do not** include megabyte-scale logs in artifacts. Keep them small and readable.
-- Deterministic naming for artifacts/collections/chats so users can find them later.
+## Coding Style & Naming Conventions
+- Use snake_case for functions and variables; reserve UpperCamelCase for Pydantic models or exception types.
+- Keep module names descriptive of their stage; CLI flags stay kebab-case (`--session-id`), env vars uppercase with the `OH2WEBUI_` prefix.
+- Follow Black/Ruff defaults (100-char lines, trailing commas on multiline literals, explicit relative imports) and favor early returns for clarity.
+- Document non-obvious control flow with brief comments tied to pipeline stages.
 
-## Build & test
-- Install: `pip install -e .`
-- Lint/format: `make lint` / `make fmt`
-- Tests: `make test`
+## Testing Guidelines
+- Write pytest files as `test_<module>.py` with functions `test_<behavior>`.
+- Mock filesystem and HTTP boundaries; protect real Open WebUI calls behind markers skipped by default.
+- Cover the golden path plus at least one failure mode per command; add regression tests alongside bug fixes.
+- Run `make test` (and lint/format) before pushing or opening a PR.
 
-## Execution hints
-- Working directory: project root unless specified.
-- For chat creation, attach the collection to both chat metadata and the initial user turn so RAG is effective from the first response.
-- Use **3B (prefill-only)** when the user intends to add more artifacts before first reply; use **3A** for immediate guidance.
+## Commit & Pull Request Guidelines
+- Commit subjects are imperative, ≤50 characters (`Refine distiller grouping`); expand in the body with bullets when context helps reviewers.
+- Reference issues or session IDs when relevant and keep diffs scoped to a single concern.
+- PRs must summarize pipeline impact, include sample artifact snippets when output changes, and list any env/config updates.
+- Confirm CI commands (`make fmt`, `make lint`, `make test`) succeed locally or explain exceptions in the PR.
 
-## Retrieval etiquette
-- Filter by project/session/status/timestamp before vector search.
-- Prioritize the **latest** steps when answering “what happened last?”
-- Cite artifacts by **step** and **title** in explanations.
-
-## Commit / PR guidance
-- Keep diffs minimal and focused.
-- Update docs when changing artifact format or naming schemes.
-- Ensure CI (`make test`) passes before proposing changes.
-
-## File precedence
-Codex CLI typically merges **AGENTS.md** from:
-1. `~/.codex/AGENTS.md` (global), then
-2. repo root (this file), then
-3. current subdirectory overrides.
-
-This repo intends **this file** as the primary guidance for agents operating here.
-
-_Last updated: 2025-10-05_
+## Environment & Secrets
+- Copy `.env.example` to `.env` and load via `python-dotenv` during development.
+- Store raw session dumps under `work/<session>/raw/` (e.g., `work/18df13f4-01f1-45-522ab2bc227dac1/raw/`) before running `distill`; keep generated artifacts in `work/<session>/artifacts/`.
+- Never commit raw session JSONs or API tokens, and purge temporary folders once processed.

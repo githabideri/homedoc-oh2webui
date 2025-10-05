@@ -11,8 +11,10 @@ Turn stored **OpenHands** session JSONs into compact artifacts and seed **Open W
 1. Create a virtualenv and install:
    - `pip install -e .`
 2. Copy `.env.example` to `.env` and fill values.
-3. Run the pipeline (high level):
+3. Prepare session data:
    - `oh2webui extract --session <id> --src ~/.openhands/sessions --dst ./work/<id>/raw`
+   - Already have a full OpenHands dump? Move its contents into `work/<id>/raw/` so the distiller finds `events/` and related caches.
+4. Run the pipeline (high level):
    - `oh2webui distill --src ./work/<id>/raw --dst ./work/<id>/artifacts`
    - `oh2webui upload --src ./work/<id>/artifacts`
    - `oh2webui chat --collection <name-or-id> --variant 3A|3B`
