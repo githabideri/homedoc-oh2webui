@@ -1,4 +1,4 @@
-# codex-cli-oh2webui
+# HomeDoc – oh2webui
 
 Turn stored **OpenHands** session JSONs into compact artifacts and seed **Open WebUI** with a collection and a chat (completion or prefill). First iteration uses stored files only.
 
@@ -8,8 +8,14 @@ Turn stored **OpenHands** session JSONs into compact artifacts and seed **Open W
 - OpenHands sessions on disk
 
 ## Quick start
-1. Create a virtualenv and install:
-   - `pip install -e .`
+1. Install the CLI (choose one):
+   - Editable install (local venv): `pip install -e .`
+   - `pipx`: `pipx install .`
+   - `uv`: `uv tool install .`
+   
+   Updating/removing:
+   - `pipx upgrade oh2webui` or `pipx uninstall oh2webui`
+   - `uv tool upgrade oh2webui` or `uv tool uninstall oh2webui`
 2. Copy `.env.example` to `.env` and fill values (`OPENWEBUI_BASE_URL`, `OPENWEBUI_API_TOKEN`, `OH2WEBUI_MODEL`, etc.).
 3. Prepare session data:
    - `oh2webui extract --session <id> --src ~/.openhands/sessions --dst ./work/<id>/raw`
