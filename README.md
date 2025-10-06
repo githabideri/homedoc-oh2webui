@@ -28,6 +28,8 @@ Turn stored **OpenHands** session JSONs into compact artifacts and seed **Open W
 
    Variant **3A** now triggers an Open WebUI completion automatically and waits until the assistant reply is written back to the chat (spinner-free). Variant **3B** seeds the user message only.
 
+   Enable automatic chat transcript capture by exporting `OH2WEBUI_CAPTURE_CHAT_EXPORT=true` (or `OH2WEBUI_DEBUG=true`) before running the chat command. The CLI then saves `chat-export-<chat_id>.json` alongside the artifacts for auditing and regression checks.
+
 5. Need a reference run? See [`docs/POC_REPORT.md`](docs/POC_REPORT.md) for session `18df13f4-01f1-45-522ab2bc227dac1` including command log, IDs, and exported chats.
 
 ## Environment configuration
@@ -40,6 +42,8 @@ Turn stored **OpenHands** session JSONs into compact artifacts and seed **Open W
 | `PROJECT_NAME` / `BRANCH` | Metadata used for artifact front matter and chat titles. |
 | `OH2WEBUI_MODEL` | Completion model to request (defaults to `openai/gpt-4o-mini`). |
 | `OH2WEBUI_DRY_RUN` | Set to `true` to bypass network calls during local testing. |
+| `OH2WEBUI_DEBUG` | When `true`, enables debug helpers such as automatic chat export capture. |
+| `OH2WEBUI_CAPTURE_CHAT_EXPORT` | Force-enable (`true`) or disable (`false`) saving chat transcripts locally; defaults to `auto` which follows `OH2WEBUI_DEBUG`. |
 
 The CLI auto-detects invalid placeholder values (e.g., `your-token-here`) and falls back to dry-run mode when credentials are missing.
 
@@ -50,7 +54,7 @@ The CLI auto-detects invalid placeholder values (e.g., `your-token-here`) and fa
 - Creates a chat linked to that collection (3A completion with automatic assistant reply, or 3B prefill-only)
 
 ## Status
-v0.1.0 — stored files only, no live sockets. Automatic knowledge upload + chat completion validated against Open WebUI.
+v0.2.0 — adds optional chat export capture aligned with Open WebUI’s manual download, plus CLI helpers for full pipeline automation.
 
 ## License
 MIT

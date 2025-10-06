@@ -60,6 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
     chat_parser.add_argument("--artifacts", required=True, help="Artifacts directory")
     chat_parser.add_argument("--collection", required=True, help="Collection identifier")
     chat_parser.add_argument(
+        "--collection-name",
+        help="Optional collection name to include in chat metadata",
+    )
+    chat_parser.add_argument(
         "--variant",
         choices=["3A", "3B"],
         default="3A",
@@ -151,18 +155,20 @@ def main(argv: list[str] | None = None) -> None:
             session_id=args.session,
             artifacts_dir=Path(args.artifacts),
             collection_id=args.collection,
+            collection_name=args.collection_name,
             variant=args.variant,
             status=args.status,
             settings=settings,
         )
-        _print_json(
-            {
-                "chat_id": chat.chat_id,
-                "title": chat.title,
-                "variant": chat.variant,
-                "dry_run": chat.dry_run,
-            }
-        )
+        payload = {
+            "chat_id": chat.chat_id,
+            "title": chat.title,
+            "variant": chat.variant,
+            "dry_run": chat.dry_run,
+        }
+        if chat.export_path:
+            payload["chat_export"] = str(chat.export_path)
+        _print_json(payload)
         return
 
     raise UploadError(f"unknown command {args.command}")

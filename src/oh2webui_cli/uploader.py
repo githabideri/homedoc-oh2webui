@@ -206,10 +206,69 @@ class OpenWebUIClient:
             return str(payload)
         return None
 
+    @staticmethod
+    def _extract_first_name(payload: dict | list | str | int | None) -> str | None:
+        if isinstance(payload, dict):
+            for key in ("name", "title", "label"):
+                value = payload.get(key)
+                if value:
+                    return str(value)
+            for value in payload.values():
+                maybe = OpenWebUIClient._extract_first_name(value)
+                if maybe:
+                    return maybe
+        elif isinstance(payload, list):
+            for item in payload:
+                maybe = OpenWebUIClient._extract_first_name(item)
+                if maybe:
+                    return maybe
+        elif isinstance(payload, (str, int)):
+            text = str(payload).strip()
+            if text:
+                return text
+        return None
+
+    def resolve_collection_name(self, collection_id: str) -> str | None:
+        if self.dry_run:
+            return None
+
+        assert self._client is not None
+        endpoints = [
+            f"/api/v1/knowledge/{collection_id}",
+            f"/api/v1/knowledge/{collection_id}/info",
+        ]
+
+        for endpoint in endpoints:
+            try:
+                response = self._client.get(endpoint)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status in {404, 405} and endpoint != endpoints[-1]:
+                    continue
+                if status in {401, 403}:
+                    raise UploadError("knowledge lookup unauthorized") from exc
+                continue
+            except httpx.HTTPError:
+                continue
+
+            payload = response.json() if response.content else {}
+            if isinstance(payload, dict):
+                maybe = OpenWebUIClient._extract_first_name(payload)
+                if maybe:
+                    return maybe
+                if isinstance(payload.get("data"), dict):
+                    maybe = OpenWebUIClient._extract_first_name(payload["data"])
+                    if maybe:
+                        return maybe
+
+        return None
+
     def create_chat(
         self,
         *,
         collection_id: str,
+        collection_name: str | None,
         title: str,
         variant: str,
         prefill: str,
@@ -221,10 +280,16 @@ class OpenWebUIClient:
         assert self._client is not None
         user_msg_id = uuid.uuid4().hex
         timestamp = int(time.time())
+        knowledge_entry = {"id": collection_id, "type": "collection"}
+        if collection_name:
+            knowledge_entry["name"] = collection_name
         payload = {
             "chat": {
                 "title": title,
-                "metadata": {"collection_id": collection_id, "variant": variant},
+                "metadata": {
+                    "collection_id": collection_id,
+                    "variant": variant,
+                },
                 "models": [self.settings.model],
                 "messages": [
                     {
@@ -235,12 +300,12 @@ class OpenWebUIClient:
                         "models": [self.settings.model],
                         "parentId": None,
                         "childrenIds": [],
-                        "files": [{"id": collection_id, "type": "collection"}],
+                        "files": [knowledge_entry],
                         "metadata": {"collection_id": collection_id},
                     }
                 ],
                 "knowledge_ids": [collection_id],
-                "files": [{"id": collection_id, "type": "collection"}],
+                "files": [knowledge_entry],
                 "history": {
                     "current_id": user_msg_id,
                     "currentId": user_msg_id,
@@ -253,13 +318,17 @@ class OpenWebUIClient:
                             "models": [self.settings.model],
                             "parentId": None,
                             "childrenIds": [],
-                            "files": [{"id": collection_id, "type": "collection"}],
+                            "files": [knowledge_entry],
                         }
                     },
                 },
                 "currentId": user_msg_id,
             }
         }
+
+        if collection_name:
+            payload["chat"]["metadata"]["collection_name"] = collection_name
+            payload["chat"]["messages"][0]["metadata"]["collection_name"] = collection_name
 
         endpoints = ["/api/v1/chats/new", "/api/v1/chats"]
         last_error: httpx.HTTPError | None = None
@@ -297,7 +366,11 @@ class OpenWebUIClient:
         chat_id_str = str(chat_id)
 
         try:
-            self.link_knowledge_to_chat(chat_id=chat_id_str, knowledge_id=collection_id)
+            self.link_knowledge_to_chat(
+                chat_id=chat_id_str,
+                knowledge_id=collection_id,
+                knowledge_name=collection_name,
+            )
         except UploadError:
             pass
 
@@ -314,7 +387,13 @@ class OpenWebUIClient:
 
         return chat_id_str
 
-    def link_knowledge_to_chat(self, *, chat_id: str, knowledge_id: str) -> None:
+    def link_knowledge_to_chat(
+        self,
+        *,
+        chat_id: str,
+        knowledge_id: str,
+        knowledge_name: str | None,
+    ) -> None:
         if self.dry_run:
             return
 
@@ -335,18 +414,27 @@ class OpenWebUIClient:
         def merge_entries(items: list | None, entry: dict) -> list:
             items = items or []
             merged: list[dict] = []
-            seen: set[str] = set()
-            for candidate in items + [entry]:
+            updated = False
+            for candidate in items:
                 if not isinstance(candidate, dict):
                     continue
                 candidate_id = candidate.get("id")
-                if not candidate_id or candidate_id in seen:
-                    continue
-                seen.add(str(candidate_id))
-                merged.append(candidate)
+                if candidate_id and str(candidate_id) == str(entry.get("id")):
+                    merged_entry = {**candidate}
+                    for key, value in entry.items():
+                        if value and not merged_entry.get(key):
+                            merged_entry[key] = value
+                    merged.append(merged_entry)
+                    updated = True
+                else:
+                    merged.append(candidate)
+            if not updated:
+                merged.append(entry)
             return merged
 
         knowledge_entry = {"id": knowledge_id, "type": "collection"}
+        if knowledge_name:
+            knowledge_entry["name"] = knowledge_name
 
         knowledge_ids = chat_payload.get("knowledge_ids")
         ordered_ids: list[str] = []
@@ -358,16 +446,51 @@ class OpenWebUIClient:
 
         chat_payload["files"] = merge_entries(chat_payload.get("files"), knowledge_entry)
 
+        chat_metadata = chat_payload.setdefault("metadata", {})
+        if knowledge_name:
+            chat_metadata.setdefault("collection_name", knowledge_name)
+
         for message in chat_payload.get("messages", []) or []:
             if isinstance(message, dict) and message.get("role") == "user":
                 message["files"] = merge_entries(message.get("files"), knowledge_entry)
                 metadata = message.setdefault("metadata", {})
                 metadata.setdefault("collection_id", knowledge_id)
+                if knowledge_name:
+                    metadata.setdefault("collection_name", knowledge_name)
                 break
 
         payload = {"chat": chat_payload}
         update_response = self._client.post(f"/api/v1/chats/{chat_id}", json=payload)
         update_response.raise_for_status()
+
+    def download_chat_export(self, *, chat_id: str, destination: Path) -> Path:
+        if self.dry_run:
+            raise UploadError("chat export unavailable in dry-run mode")
+
+        assert self._client is not None
+        response = self._client.get(f"/api/v1/chats/{chat_id}")
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+
+        if isinstance(payload, list):
+            export_payload = payload
+        elif isinstance(payload, dict):
+            if "chat" in payload and not any(
+                key in payload for key in {"id", "user_id", "created_at", "updated_at"}
+            ):
+                export_payload = [payload["chat"]]
+            else:
+                export_payload = [payload]
+        else:
+            raise UploadError("unexpected chat export payload")
+
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            json.dumps(export_payload, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        return destination
 
     def complete_chat(
         self,

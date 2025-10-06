@@ -26,6 +26,8 @@ class Settings:
     branch: Optional[str]
     dry_run: bool
     model: str
+    debug_mode: bool
+    capture_chat_export: bool
     package_name: str = "codex-cli-oh2webui"
     version: str = _read_version()
 
@@ -57,6 +59,18 @@ def load_settings() -> Settings:
     dry_run_env = os.getenv("OH2WEBUI_DRY_RUN") or "false"
     dry_run = dry_run_env.lower() in {"1", "true", "yes", "on"}
 
+    debug_env = os.getenv("OH2WEBUI_DEBUG") or "false"
+    debug_mode = debug_env.lower() in {"1", "true", "yes", "on"}
+
+    capture_env = os.getenv("OH2WEBUI_CAPTURE_CHAT_EXPORT")
+    if capture_env is None:
+        capture_env = "auto"
+    capture_flag = capture_env.lower()
+    if capture_flag == "auto":
+        capture_chat_export = debug_mode
+    else:
+        capture_chat_export = capture_flag in {"1", "true", "yes", "on"}
+
     placeholder_tokens = {"", "your-token-here", "changeme"}
     if not api_token or api_token in placeholder_tokens:
         api_token = None
@@ -69,6 +83,9 @@ def load_settings() -> Settings:
     if not dry_run:
         dry_run = not (base_url and api_token)
 
+    if dry_run:
+        capture_chat_export = False
+
     return Settings(
         base_url=base_url,
         api_token=api_token,
@@ -77,6 +94,8 @@ def load_settings() -> Settings:
         branch=branch,
         dry_run=dry_run,
         model=model,
+        debug_mode=debug_mode,
+        capture_chat_export=capture_chat_export,
     )
 
 

@@ -15,6 +15,7 @@ class ChatResult:
     title: str
     variant: str
     dry_run: bool
+    export_path: Path | None
 
 
 def _read_manifest(artifacts_dir: Path) -> list[dict]:
@@ -77,6 +78,7 @@ def create_chat(
     session_id: str,
     artifacts_dir: Path,
     collection_id: str,
+    collection_name: str | None,
     variant: str,
     settings: Settings,
     status: str = "ready",
@@ -99,8 +101,11 @@ def create_chat(
 
     client = OpenWebUIClient(settings)
     try:
+        if not collection_name:
+            collection_name = client.resolve_collection_name(collection_id)
         chat_id = client.create_chat(
             collection_id=collection_id,
+            collection_name=collection_name,
             title=title,
             variant=variant,
             prefill=prefill,
@@ -109,7 +114,28 @@ def create_chat(
         _append_ingest_log(ingest_log, f"chat created id={chat_id} variant={variant}")
         if variant == "3A" and not settings.dry_run:
             _append_ingest_log(ingest_log, f"chat completion triggered id={chat_id}")
-        return ChatResult(chat_id=chat_id, title=title, variant=variant, dry_run=client.dry_run)
+        export_path: Path | None = None
+        if settings.capture_chat_export and not client.dry_run:
+            try:
+                export_path = client.download_chat_export(
+                    chat_id=chat_id,
+                    destination=artifacts_dir / f"chat-export-{chat_id}.json",
+                )
+                _append_ingest_log(
+                    ingest_log, f"chat export saved id={chat_id} path={export_path.name}"
+                )
+            except UploadError as exc:
+                _append_ingest_log(
+                    ingest_log,
+                    f"chat export failed id={chat_id} detail={exc}",
+                )
+        return ChatResult(
+            chat_id=chat_id,
+            title=title,
+            variant=variant,
+            dry_run=client.dry_run,
+            export_path=export_path,
+        )
     finally:
         client.close()
 
