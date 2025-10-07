@@ -5,7 +5,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional
 
 
 class GroupingError(RuntimeError):
@@ -73,23 +73,40 @@ class EventGroup:
 def _load_json_lines(path: Path) -> list[dict]:
     records: list[dict] = []
     with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
+        for index, line in enumerate(handle, start=1):
             line = line.strip()
             if not line:
                 continue
-            records.append(json.loads(line))
+            record = json.loads(line)
+            record.setdefault("__source", path.name)
+            record.setdefault("__index", index)
+            records.append(record)
     return records
 
 
 def _load_json_file(path: Path) -> list[dict]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
-        return list(data)
+        records: list[dict] = []
+        for index, item in enumerate(data, start=1):
+            if isinstance(item, dict):
+                item.setdefault("__source", path.name)
+                item.setdefault("__index", index)
+            records.append(item)
+        return records
     if isinstance(data, dict) and "events" in data:
         events = data["events"]
         if isinstance(events, list):
-            return list(events)
+            records = []
+            for index, item in enumerate(events, start=1):
+                if isinstance(item, dict):
+                    item.setdefault("__source", path.name)
+                    item.setdefault("__index", index)
+                records.append(item)
+            return records
     if isinstance(data, dict):
+        data.setdefault("__source", path.name)
+        data.setdefault("__index", 1)
         return [data]
     raise GroupingError(f"{path} is not a recognised events container")
 
@@ -129,18 +146,78 @@ def _parse_timestamp(value) -> datetime:
     return datetime.fromtimestamp(0)
 
 
-def _normalise_event(raw: dict, fallback_step: str) -> Event:
+def _extract_metadata(raw: dict) -> dict:
     metadata = raw.get("metadata")
     if not isinstance(metadata, dict):
         metadata = {}
 
-    step = (
+    extras = raw.get("extras")
+    if isinstance(extras, dict):
+        extra_meta = extras.get("metadata")
+        if isinstance(extra_meta, dict):
+            merged = {**extra_meta}
+            merged.update(metadata)
+            metadata = merged
+        command = extras.get("command")
+        if command and "command" not in metadata:
+            metadata["command"] = command
+    return metadata
+
+
+def _normalise_status(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "success" if value else "failed"
+    text = str(value).strip()
+    return text or None
+
+
+def _derive_status(raw: dict, metadata: dict) -> str | None:
+    status = _normalise_status(raw.get("success"))
+    if status:
+        return status
+
+    status = _normalise_status(metadata.get("success"))
+    if status:
+        return status
+
+    exit_code = metadata.get("exit_code") or raw.get("exit_code")
+    if exit_code is not None:
+        try:
+            code = int(exit_code)
+        except (TypeError, ValueError):
+            code = None
+        if code is not None:
+            return "success" if code == 0 else "failed"
+
+    error = raw.get("error") or metadata.get("error")
+    if error:
+        return "error"
+
+    outcome = raw.get("outcome") or metadata.get("outcome")
+    return _normalise_status(outcome)
+
+
+def _normalise_event(raw: dict, fallback_step: str) -> Event:
+    metadata = _extract_metadata(raw)
+
+    step_candidate = (
         raw.get("step")
         or raw.get("step_id")
         or metadata.get("step")
         or raw.get("run_id")
-        or fallback_step
+        or raw.get("id")
     )
+
+    if not step_candidate:
+        source_name = raw.get("__source")
+        if source_name:
+            stem = Path(source_name).stem
+            if stem:
+                step_candidate = stem
+
+    step = str(step_candidate) if step_candidate is not None else fallback_step
 
     author = raw.get("author")
     author_role = None
@@ -157,10 +234,19 @@ def _normalise_event(raw: dict, fallback_step: str) -> Event:
         raw.get("ts") or raw.get("timestamp") or metadata.get("ts") or metadata.get("timestamp")
     )
 
-    status = raw.get("status") or metadata.get("status")
+    status = _normalise_status(raw.get("status") or metadata.get("status"))
+    if not status:
+        status = _derive_status(raw, metadata)
 
     if isinstance(raw.get("tags"), list):
         metadata.setdefault("tags", raw["tags"])
+
+    if raw.get("__source") and "source" not in metadata:
+        metadata["source"] = str(raw["__source"])
+    if raw.get("__index") is not None and "source_index" not in metadata:
+        metadata["source_index"] = raw["__index"]
+    if step_candidate is None:
+        metadata.setdefault("fallback_step", fallback_step)
 
     return Event(
         step=str(step),

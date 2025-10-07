@@ -64,6 +64,23 @@ Variant **3B** stops here (prefill only). For variant **3A** we immediately
 follow up by linking the knowledge collection and (optionally) dispatch the
 assistant turn via `/api/chat/completions` outside the CLI.
 
+### Prefill guidance for variant 3A
+
+The digest text includes:
+
+- Counts, latest pending steps, and up to four failure snippets.
+- References to the generated artifacts plus the official docs at
+  `https://docs.all-hands.dev/usage/how-to/cli-mode` and the OpenHands
+  repository (`https://github.com/All-Hands-AI/OpenHands`).
+- Instructions for the assistant to ground recommendations in the documented
+  CLI sandbox defaults, cite artifacts or docs when suggesting fixes, and to
+  ask the user before attempting web search because it is disabled unless the
+  user opts in.
+
+These additions keep the automated triage actionable for operators running the
+OpenHands CLI and avoid suggesting host-level changes that conflict with the
+sandboxed runtime.
+
 ## Knowledge file entry (`files` list)
 
 After the collection is created we fetch `GET /api/v1/knowledge/<id>` and merge

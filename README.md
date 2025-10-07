@@ -54,7 +54,7 @@ The CLI auto-detects invalid placeholder values (e.g., `your-token-here`) and fa
 - Creates a chat linked to that collection (3A completion with automatic assistant reply, or 3B prefill-only)
 
 ## Status
-v0.2.0 — adds optional chat export capture aligned with Open WebUI’s manual download, plus CLI helpers for full pipeline automation.
+v0.2.1 — streamlines session transcript distillation, trims system prompts, and refreshes pipeline tooling for smoother chat uploads.
 
 ## License
 MIT

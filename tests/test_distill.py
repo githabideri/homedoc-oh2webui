@@ -49,11 +49,47 @@ def test_distill_creates_artifacts(tmp_path: Path, settings) -> None:
     assert result.artifacts_dir == artifacts_dir
     assert result.manifest_path.exists()
     assert result.ingest_log.exists()
-    assert len(result.artifacts) == 2
+    assert len(result.artifacts) == 1
 
-    artifact_files = list(artifacts_dir.glob("artifact-*.md"))
-    assert len(artifact_files) == 2
+    transcript_path = artifacts_dir / "session-transcript.md"
+    assert transcript_path.exists()
 
-    sample_content = artifact_files[0].read_text(encoding="utf-8")
+    sample_content = transcript_path.read_text(encoding="utf-8")
     assert "project" in sample_content
     assert "session-123" in sample_content
+    assert "Step 2" in sample_content
+    assert "Executed build script successfully." in sample_content
+    assert "Initial instructions" not in sample_content
+
+
+def test_distill_uses_inferred_status_in_filename(tmp_path: Path, settings) -> None:
+    raw_dir = tmp_path / "session-raw"
+    raw_dir.mkdir()
+    events = [
+        {
+            "step": "010",
+            "role": "assistant",
+            "content": "Executed task",
+            "ts": datetime(2025, 1, 1, 11, 0, tzinfo=timezone.utc).isoformat(),
+            "success": True,
+        }
+    ]
+    with (raw_dir / "events.jsonl").open("w", encoding="utf-8") as handle:
+        for item in events:
+            handle.write(json.dumps(item) + "\n")
+
+    artifacts_dir = tmp_path / "artifacts"
+    result = distill_session(
+        session_id="session-456",
+        raw_root=raw_dir,
+        artifacts_root=artifacts_dir,
+        settings=settings,
+    )
+
+    assert len(result.artifacts) == 1
+    record = result.artifacts[0]
+    assert record.filename == "session-transcript.md"
+
+    transcript = (artifacts_dir / record.filename).read_text(encoding="utf-8")
+    assert "Step 10" in transcript
+    assert "Executed task" in transcript

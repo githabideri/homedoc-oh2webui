@@ -1,6 +1,6 @@
 [project]
 name = "codex-cli-oh2webui"
-version = "0.2.0"
+version = "0.2.1"
 description = "Extract OpenHands sessions, distill artifacts, and seed Open WebUI."
 authors = [{name = "Your Name"}]
 readme = "README.md"

@@ -67,5 +67,37 @@ def test_load_event_groups_from_event_directory(tmp_path: Path) -> None:
 
     assert len(groups) == 1
     group = groups[0]
-    assert group.step == "001"
+    assert group.step == "0"
     assert group.status == "success"
+
+
+def test_status_inferred_from_success_flag(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    events_dir = raw_dir / "events"
+    events_dir.mkdir(parents=True)
+
+    successful_event = {
+        "id": 0,
+        "timestamp": datetime(2025, 1, 2, 9, 30, tzinfo=timezone.utc).isoformat(),
+        "source": "agent",
+        "message": "Ran formatting",
+        "success": True,
+    }
+
+    failing_event = {
+        "id": 1,
+        "timestamp": datetime(2025, 1, 2, 9, 31, tzinfo=timezone.utc).isoformat(),
+        "source": "agent",
+        "message": "Command failed",
+        "success": False,
+        "metadata": {"step": "002"},
+    }
+
+    (events_dir / "0.json").write_text(json.dumps(successful_event), encoding="utf-8")
+    (events_dir / "1.json").write_text(json.dumps(failing_event), encoding="utf-8")
+
+    groups = load_event_groups(raw_dir)
+
+    assert len(groups) == 2
+    assert groups[0].status == "success"
+    assert groups[1].status == "failed"

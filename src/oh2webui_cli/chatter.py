@@ -26,45 +26,101 @@ def _read_manifest(artifacts_dir: Path) -> list[dict]:
     return manifest.get("artifacts", [])
 
 
-def _build_prefill(artifacts: list[dict], variant: str) -> str:
-    max_preview = 20
-    lines = ["Artifacts ingested (latest steps first):"]
+def _extract_body_preview(path: Path, *, limit: int = 160) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
-    for index, entry in enumerate(reversed(artifacts)):
-        step = entry.get("step")
-        status = entry.get("status") or "unknown"
-        filename = entry.get("filename") or "n/a"
-        lines.append(f"- Step {step}: {status} – {filename}")
-        if index + 1 >= max_preview:
-            remaining = len(artifacts) - max_preview
-            if remaining > 0:
-                lines.append(
-                    f"- … {remaining} additional artifacts not shown (see knowledge collection)"
-                )
-            break
+    body = text
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) == 3:
+            body = parts[2]
 
-    lines.append("")
+    for line in body.splitlines():
+        snippet = line.strip()
+        if snippet:
+            return snippet[:limit]
+    return None
+
+
+def _build_prefill(
+    *,
+    session_id: str,
+    settings: Settings,
+    artifacts_dir: Path,
+    artifacts: list[dict],
+    variant: str,
+) -> str:
+    from collections import Counter
+
+    status_counter = Counter((entry.get("status") or "pending") for entry in artifacts)
+    total = sum(status_counter.values())
+    pending = status_counter.get("pending", 0)
+    successful = status_counter.get("success", 0)
+    failed = status_counter.get("failed", 0)
+
+    pending_steps = [
+        entry for entry in artifacts if (entry.get("status") or "pending") == "pending"
+    ]
+    latest_pending = pending_steps[-3:]
+
+    failed_entries = [entry for entry in artifacts if entry.get("status") == "failed"]
+    preview_failures: list[str] = []
+    for entry in failed_entries[:4]:
+        snippet = _extract_body_preview(artifacts_dir / entry["filename"])
+        detail = f"Step {entry['step']} – {entry['filename']}"
+        if snippet:
+            detail += f": {snippet}"
+        preview_failures.append(detail)
+
+    overview: list[str] = [
+        "Session digest (precomputed):",
+        f"- Total artifacts: {total} (success: {successful}, failed: {failed}, pending: {pending})",
+    ]
+    if latest_pending:
+        latest_desc = ", ".join(
+            f"Step {entry['step']} ({entry['filename']})" for entry in latest_pending
+        )
+        overview.append(f"- Latest pending steps: {latest_desc}")
+    if preview_failures:
+        overview.append("- Failing steps:")
+        overview.extend(f"  * {item}" for item in preview_failures)
+
+    resources = [
+        "",
+        "Reference:",
+        "- run.json: manifest with step/status/hash for every artifact.",
+        "- session-transcript.md: chronological, step-tagged event stream.",
+        "- ingest.log: chronological log of writes/uploads.",
+        "- OpenHands docs (CLI/runtime): https://docs.all-hands.dev/usage/how-to/cli-mode.",
+        "- OpenHands repo (sandbox tips): https://github.com/All-Hands-AI/OpenHands.",
+    ]
 
     if variant == "3A":
-        lines.extend(
-            [
-                "You are drafting a concise status update for the session.",
-                "Please:",
-                "1. Summarise the overall progress in 2-3 sentences (call out wins and blockers).",
-                "2. Highlight any high-risk steps or failures that need attention.",
-                "3. Recommend the next 2-3 actions, referencing step numbers or filenames from above.",
-                "Keep the response structured with short bullet sections (Status / Issues / Next).",
-            ]
-        )
+        task = [
+            "",
+            "Triage brief:",
+            f"- Project: {settings.project} | Session: {session_id}",
+            "- Deliver a triage update using the digest above before drilling into artifacts.",
+            "- Structure response as **Status**, **Issues**, **Next** (≤3 bullets each).",
+            "- In Status: report the counts and call out notable wins.",
+            "- In Issues: cite specific failing steps or risky pending steps (step + filename).",
+            "- In Next: recommend 2–3 concrete follow-ups tied to those artifacts.",
+            "- Ground advice in OpenHands CLI sandbox defaults before suggesting installs.",
+            "- Point deeper troubleshooting to the docs above or artifact/ingest.log evidence.",
+            "- Ask the user before web search; it stays off unless they opt in.",
+        ]
     else:
-        lines.extend(
-            [
-                "Prefill only (variant 3B).",
-                "Log any standout observations in 2 bullets so the human can follow up manually.",
-            ]
-        )
+        task = [
+            "",
+            "Prefill brief (variant 3B):",
+            "- Capture two bullets with top observations (critical failures, next checks).",
+            "- Reference steps/filenames instead of summarising every artifact.",
+        ]
 
-    return "\n".join(lines)
+    return "\n".join(overview + resources + task)
 
 
 def _append_ingest_log(path: Path, message: str) -> None:
@@ -97,7 +153,13 @@ def create_chat(
     title_prefix = "/".join(title_parts)
     title = f"{title_prefix}/{timestamp.strftime('%Y-%m-%d %H:%M')} – {session_id} – {status}"
 
-    prefill = _build_prefill(artifacts, variant)
+    prefill = _build_prefill(
+        session_id=session_id,
+        settings=settings,
+        artifacts_dir=artifacts_dir,
+        artifacts=artifacts,
+        variant=variant,
+    )
 
     client = OpenWebUIClient(settings)
     try:

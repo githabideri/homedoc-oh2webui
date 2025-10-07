@@ -861,10 +861,7 @@ def upload_artifacts(
             _append_ingest_log(ingest_log, f"upload processed file={record.filename} id={file_id}")
 
         timestamp = datetime.now(timezone.utc)
-        short_id = uuid.uuid4().hex[:6]
-        collection_name = (
-            f"oh:{settings.project}:{session_id}:{timestamp.strftime('%Y%m%d')}-{short_id}"
-        )
+        collection_name = f"oh-{session_id}-{timestamp.strftime('%Y%m%d')}"
         description = f"Artifacts for session {session_id} ({settings.project})"
         collection_id = client.create_collection(collection_name, description)
         _append_ingest_log(
